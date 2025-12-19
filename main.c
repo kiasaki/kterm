@@ -4,12 +4,14 @@
 #include <pty.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/ioctl.h>
 #include "lib/raylib.h"
 #include "lib/go.h"
 #include "lib/tmt.h"
 #include "lib/tmt.c"
 
-const int fontSize = 18;
+const int fontHeight = 18;
+const int fontWidth = 9;
 const int spacing = 0;
 int shouldExit = 0;
 TMT *vt;
@@ -18,6 +20,7 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void die(char*);
 int max(int a, int b);
+void resize();
 void callback(tmt_msg_t m, TMT *vt, const void *a, void *p);
 void* start_shell(void* param);
 
@@ -25,8 +28,8 @@ int main() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
     InitWindow(1024, 768, "term");
     SetWindowMinSize(400, 400);
+    SetExitKey(0);
     Font font = LoadFont_Go();
-    Vector2 charSize = MeasureTextEx(font, " ", fontSize, spacing);
     SetTargetFPS(60);
 
     Color colorFg = GetColor(0x373B41FF);
@@ -44,17 +47,16 @@ int main() {
     };
 
     setenv("TERM", "linux", 1);
-    vt = tmt_open((GetScreenHeight()-8)/fontSize, (GetScreenWidth()-8)/charSize.x, callback, NULL, NULL);
+    vt = tmt_open(80, 24, callback, NULL, NULL);
     if (!vt) die("can not open virtual terminal");
+    resize();
 
     pthread_t thread;
     pthread_create(&thread, NULL, start_shell, NULL);
 
     while (!WindowShouldClose() && !shouldExit) {
       if (IsWindowResized()) {
-        Vector2 dpi = GetWindowScaleDPI();
-        tmt_resize(vt, (GetRenderHeight()/dpi.y-8)/fontSize, (GetRenderWidth()/dpi.x-8)/charSize.x);
-    printf("h %d w %d f %d c %d row %d col %d\n", GetScreenHeight(), GetScreenWidth(), GetRenderHeight(), GetRenderWidth(), vt->screen.nline, vt->screen.ncol);
+        resize();
       }
       char k;
       pthread_mutex_lock(&mutex);
@@ -69,14 +71,19 @@ int main() {
       while ((k = GetCharPressed())) {
         write(master_fd, &k, 1);
       }
+      #define PRESSED_OR_REPEAT(x) IsKeyPressed((x)) || IsKeyPressedRepeat((x))
       if (IsKeyPressed(KEY_TAB)) write(master_fd, "\t", 1); 
-      if (IsKeyPressed(KEY_ENTER)||IsKeyPressedRepeat(KEY_ENTER)) write(master_fd, "\r", 1); 
-      if (IsKeyPressed(KEY_ESCAPE)) write(master_fd, TMT_KEY_ESCAPE, 1); 
-      if (IsKeyPressed(KEY_BACKSPACE)) write(master_fd, TMT_KEY_BACKSPACE, 1); 
-      if (IsKeyPressed(KEY_LEFT)) write(master_fd, TMT_KEY_LEFT, 3); 
-      if (IsKeyPressed(KEY_DOWN)) write(master_fd, TMT_KEY_DOWN, 3); 
-      if (IsKeyPressed(KEY_UP)) write(master_fd, TMT_KEY_UP, 3); 
-      if (IsKeyPressed(KEY_RIGHT)) write(master_fd, TMT_KEY_RIGHT, 3); 
+      if (PRESSED_OR_REPEAT(KEY_ENTER)) write(master_fd, "\r", 1); 
+      if (PRESSED_OR_REPEAT(KEY_ESCAPE)) write(master_fd, TMT_KEY_ESCAPE, 1); 
+      if (PRESSED_OR_REPEAT(KEY_BACKSPACE)) write(master_fd, TMT_KEY_BACKSPACE, 1); 
+      if (PRESSED_OR_REPEAT(KEY_LEFT)) write(master_fd, TMT_KEY_LEFT, 3); 
+      if (PRESSED_OR_REPEAT(KEY_DOWN)) write(master_fd, TMT_KEY_DOWN, 3); 
+      if (PRESSED_OR_REPEAT(KEY_UP)) write(master_fd, TMT_KEY_UP, 3); 
+      if (PRESSED_OR_REPEAT(KEY_RIGHT)) write(master_fd, TMT_KEY_RIGHT, 3); 
+      if (IsKeyPressed(KEY_V) && IsKeyDown(KEY_LEFT_CONTROL) && IsKeyDown(KEY_LEFT_SHIFT)) {
+        char *clip = GetClipboardText();
+        write(master_fd, clip, strlen(clip)); 
+      }
       pthread_mutex_unlock(&mutex);
 
       BeginDrawing();
@@ -84,16 +91,18 @@ int main() {
       const TMTSCREEN *s = tmt_screen(vt);
       const TMTPOINT *cu = tmt_cursor(vt);
       char ch[2]; ch[1] = '\0';
-      DrawRectangle(4+cu->c*charSize.x, 4+cu->r*fontSize, charSize.x, fontSize, colorFg);
       for (size_t r = 0; r < s->nline; r++) {
         for (size_t c = 0; c < s->ncol; c++) {
           TMTCHAR tmc = s->lines[r]->chars[c];
           ch[0] = tmc.c;
-          Vector2 p = {4+c*charSize.x, 4+r*fontSize};
-          Color bg = r==cu->r && c==cu->c ? colorFg : colors[max(0, tmc.a.bg)];
-          Color fg = r==cu->r && c==cu->c ? colorBg : colors[max(0, tmc.a.fg)];
-          if (tmc.a.bg > 0) DrawRectangle(p.x, p.y, charSize.x, fontSize, bg);
-          DrawTextEx(font, &ch[0], p, fontSize, spacing, fg);
+          Vector2 p = {4+c*fontWidth, 4+r*fontHeight};
+          if (cu->c==c && cu->r==r) {
+            DrawRectangle(p.x, p.y, fontWidth, fontHeight, colorFg);
+            DrawTextEx(font, &ch[0], p, fontHeight, spacing, colorBg);
+          } else {
+            if (tmc.a.bg > 0) DrawRectangle(p.x, p.y, fontWidth, fontHeight, colors[max(0, tmc.a.bg)]);
+            DrawTextEx(font, &ch[0], p, fontHeight, spacing, colors[max(0, tmc.a.fg)]);
+          }
         }
       }
       EndDrawing();
@@ -114,6 +123,22 @@ int max(int a, int b) {
     return a;
   }
   return b;
+}
+
+Vector2 resize_size() {
+  Vector2 dpi = GetWindowScaleDPI();
+  int rows = (GetRenderHeight()/dpi.y-8)/fontHeight;
+  int cols = (GetRenderWidth()/dpi.x-8)/fontWidth;
+  return (Vector2){cols, rows};
+}
+
+void resize() {
+  Vector2 size = resize_size();
+  tmt_resize(vt, size.y, size.x);
+  struct winsize ws = { .ws_row = size.y, .ws_col = size.x };
+  if (ioctl(master_fd, TIOCSWINSZ, &ws) == -1) {
+    perror("ioctl TIOCSWINSZ failed");
+  }
 }
 
 void callback(tmt_msg_t m, TMT *vt, const void *a, void *p) {
@@ -138,7 +163,9 @@ void callback(tmt_msg_t m, TMT *vt, const void *a, void *p) {
 void* start_shell(void* param) {
   pid_t pid;
   char buffer[2048];
-  if (openpty(&master_fd, &slave_fd, NULL, NULL, NULL) < 0) {
+  Vector2 size = resize_size();
+  struct winsize ws = { .ws_row = size.y, .ws_col = size.x };
+  if (openpty(&master_fd, &slave_fd, NULL, NULL, &ws) < 0) {
     perror("openpty failed");
     die("fatal");
   }
