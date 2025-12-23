@@ -277,10 +277,12 @@ handlechar(TMT *vt, char i)
     DO(S_ESC, "c",          tmt_reset(vt))
     ON(S_ESC, "[",          vt->state = S_ARG)
     ON(S_ESC, "]",          vt->state = S_ARG)
+    DO(S_ESC, ">",          (void)0)
     ON(S_ARG, "\x1b",       vt->state = S_ESC)
     ON(S_ARG, ";",          consumearg(vt))
-    ON(S_ARG, "?",          (void)0)
+    ON(S_ARG, "?> ",        (void)0)
     ON(S_ARG, "0123456789", vt->arg = vt->arg * 10 + atoi(cs))
+    DO(S_ARG, "\x07",       (void)0)
     DO(S_ARG, "A",          c->r = MAX(c->r - P1(0), 0))
     DO(S_ARG, "B",          c->r = MIN(c->r + P1(0), s->nline - 1))
     DO(S_ARG, "C",          c->c = MIN(c->c + P1(0), s->ncol - 1))
@@ -309,7 +311,9 @@ handlechar(TMT *vt, char i)
     DO(S_ARG, "i",          (void)0)
     DO(S_ARG, "l",          if (P0(0) == 25) CB(vt, TMT_MSG_CURSOR, "f"))
     DO(S_ARG, "s",          vt->oldcurs = vt->curs; vt->oldattrs = vt->attrs)
+    DO(S_ARG, "t",          (void)0)
     DO(S_ARG, "u",          vt->curs = vt->oldcurs; vt->attrs = vt->oldattrs)
+    DO(S_ARG, "q",          (void)0)
     DO(S_ARG, "@",          ich(vt))
 
     return resetparser(vt), false;
@@ -454,6 +458,7 @@ tmt_write(TMT *vt, const char *s, size_t n)
     n = n? n : strlen(s);
 
     for (size_t p = 0; p < n; p++){
+        printf("CH %d '%c'\n", s[p], s[p]);
         if (handlechar(vt, s[p]))
             continue;
         else if (vt->acs)

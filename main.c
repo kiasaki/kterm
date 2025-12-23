@@ -6,12 +6,12 @@
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include "lib/raylib.h"
-#include "lib/go.h"
 #include "lib/tmt.h"
 #include "lib/tmt.c"
+#include "lib/go_mono_ttf.h"
 
-const int fontHeight = 18;
-const int fontWidth = 9;
+const int fontHeight = 26;
+const int fontWidth = 13;
 const int spacing = 0;
 int shouldExit = 0;
 TMT *vt;
@@ -29,21 +29,25 @@ int main() {
     InitWindow(1024, 768, "term");
     SetWindowMinSize(400, 400);
     SetExitKey(0);
-    Font font = LoadFont_Go();
+    Vector2 dpi_scale = GetWindowScaleDPI();
+    int font_load_size = (int)(fontHeight * dpi_scale.y);
+    Font font = LoadFontFromMemory(".ttf", lib_Go_Mono_ttf, lib_Go_Mono_ttf_len, font_load_size, NULL, 0);
+    SetTextureFilter(font.texture, TEXTURE_FILTER_POINT);
     SetTargetFPS(60);
 
-    Color colorFg = GetColor(0x373B41FF);
+    Color colorFg = GetColor(0x222222FF);
     Color colorBg = GetColor(0xFFFFFFFF);
-    Color colors[9] = {
-      GetColor(0x373B41FF),
-      GetColor(0x1D1F21FF),
-      GetColor(0xCC6666FF),
-      GetColor(0xB5BD68FF),
-      GetColor(0xF0C674FF),
-      GetColor(0x81A2BEFF),
-      GetColor(0xB294BBFF),
-      GetColor(0x8ABEB7FF),
-      GetColor(0xC5C8C6FF),
+    Color colors[10] = {
+      GetColor(0x1D1F21FF), // default/black
+      GetColor(0x1D1F21FF), // black
+      GetColor(0xCC6666FF), // red
+      GetColor(0xB5BD68FF), // green
+      GetColor(0xF0C674FF), // yellow
+      GetColor(0x81A2BEFF), // blue
+      GetColor(0xB294BBFF), // magenta
+      GetColor(0x8ABEB7FF), // cyan
+      GetColor(0xC5C8C6FF), // white
+      GetColor(0xFFFFFFFF), // pure white
     };
 
     setenv("TERM", "linux", 1);
@@ -100,6 +104,7 @@ int main() {
             DrawRectangle(p.x, p.y, fontWidth, fontHeight, colorFg);
             DrawTextEx(font, &ch[0], p, fontHeight, spacing, colorBg);
           } else {
+            if (tmc.a.reverse) { tmc.a.bg = 1; tmc.a.fg = 9; }
             if (tmc.a.bg > 0) DrawRectangle(p.x, p.y, fontWidth, fontHeight, colors[max(0, tmc.a.bg)]);
             DrawTextEx(font, &ch[0], p, fontHeight, spacing, colors[max(0, tmc.a.fg)]);
           }
