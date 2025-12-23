@@ -266,7 +266,7 @@ handlechar(TMT *vt, char i)
     DO(S_NUL, "\x07",       CB(vt, TMT_MSG_BELL, NULL))
     DO(S_NUL, "\x08",       if (c->c) c->c--)
     DO(S_NUL, "\x09",       while (++c->c < s->ncol - 1 && t[c->c].c != L'*'))
-    DO(S_NUL, "\x0a",       c->r < s->nline - 1? (void)c->r++ : scrup(vt, 0, 1))
+    DO(S_NUL, "\x0a",       if (c->r < s->nline - 1) c->r++)
     DO(S_NUL, "\x0d",       c->c = 0)
     ON(S_NUL, "\x1b",       vt->state = S_ESC)
     ON(S_ESC, "\x1b",       vt->state = S_ESC)
@@ -458,7 +458,6 @@ tmt_write(TMT *vt, const char *s, size_t n)
     n = n? n : strlen(s);
 
     for (size_t p = 0; p < n; p++){
-        printf("CH %d '%c'\n", s[p], s[p]);
         if (handlechar(vt, s[p]))
             continue;
         else if (vt->acs)
